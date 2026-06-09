@@ -3,29 +3,43 @@ const productsEl = document.getElementById('products');
 const filterEl = document.getElementById('filter');
 const refreshBtn = document.getElementById('refresh');
 const addForm = document.getElementById('addForm');
+const searchEl = document.getElementById('search');
+const prevBtn = document.getElementById('prevPage');
+const nextBtn = document.getElementById('nextPage');
+const pageInfo = document.getElementById('pageInfo');
+
+let currentPage = 1;
+const limit = 6;
 
 async function fetchProducts() {
-  const res = await fetch(api);
+  const q = encodeURIComponent(searchEl.value || '');
+  const type = filterEl.value === 'all' ? '' : filterEl.value;
+  const res = await fetch(`${api}?q=${q}&type=${type}&page=${currentPage}&limit=${limit}`);
   return res.json();
 }
 
-function render(products) {
-  const filter = filterEl.value;
-  const shown = products.filter(p => filter === 'all' ? true : p.type === filter);
+function renderPage(data) {
+  const products = data.products || [];
   productsEl.innerHTML = '';
-  if (shown.length === 0) productsEl.innerHTML = '<p>No products</p>';
-  shown.forEach(p => {
+  if (products.length === 0) productsEl.innerHTML = '<p>No products</p>';
+  products.forEach(p => {
     const card = document.createElement('div');
     card.className = 'card';
     card.innerHTML = `
+      ${p.image ? `<img src="${p.image}" alt="${escapeHtml(p.title)}" class="thumb"/>` : ''}
       <h3>${escapeHtml(p.title)}</h3>
       <div class="meta">${p.type} — $${Number(p.price).toFixed(2)}</div>
       <p>${escapeHtml(p.description || '')}</p>
-      <button data-id="${p.id}">Delete</button>
+      <div class="actions"><button data-id="${p.id}" class="del">Delete</button>
+      <button data-id="${p.id}" class="view">View</button></div>
     `;
-    card.querySelector('button').addEventListener('click', () => removeProduct(p.id));
+    card.querySelector('.del').addEventListener('click', () => removeProduct(p.id));
+    card.querySelector('.view').addEventListener('click', () => viewProduct(p.id));
     productsEl.appendChild(card);
   });
+  pageInfo.textContent = `Page ${data.page} — ${data.total} items`;
+  prevBtn.disabled = data.page <= 1;
+  nextBtn.disabled = data.page * data.limit >= data.total;
 }
 
 function escapeHtml(str){
@@ -33,8 +47,8 @@ function escapeHtml(str){
 }
 
 async function load() {
-  const products = await fetchProducts();
-  render(products);
+  const data = await fetchProducts();
+  renderPage(data);
 }
 
 async function removeProduct(id){
@@ -45,18 +59,27 @@ async function removeProduct(id){
 
 addForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const data = {
-    title: document.getElementById('title').value,
-    type: document.getElementById('type').value,
-    price: parseFloat(document.getElementById('price').value),
-    description: document.getElementById('description').value
-  };
-  await fetch(api, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(data) });
+  const formData = new FormData(addForm);
+  await fetch(api, { method: 'POST', body: formData });
   addForm.reset();
+  currentPage = 1;
   load();
 });
 
-refreshBtn.addEventListener('click', load);
-filterEl.addEventListener('change', load);
+refreshBtn.addEventListener('click', () => { currentPage = 1; load(); });
+filterEl.addEventListener('change', () => { currentPage = 1; load(); });
+
+function debounce(fn, wait=300){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), wait); }; }
+
+searchEl.addEventListener('input', debounce(() => { currentPage = 1; load(); }, 400));
+prevBtn.addEventListener('click', () => { if (currentPage>1) { currentPage--; load(); } });
+nextBtn.addEventListener('click', () => { currentPage++; load(); });
+
+async function viewProduct(id){
+  const res = await fetch(`${api}/${id}`);
+  if (!res.ok) return alert('Product not found');
+  const p = await res.json();
+  alert(`${p.title}\n${p.type} — $${Number(p.price).toFixed(2)}\n\n${p.description}`);
+}
 
 load();
